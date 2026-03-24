@@ -55,8 +55,8 @@ Four filtering methods are available:
 | `early_fusion` | DreamSim + Longformer (concatenated) |
 | `rrf` | vision_only + text_only → RRF |
 
-As a baseline, **CLIP-score filtering** selects samples by the cosine
-similarity between the CLIP vision and text embeddings of the *same*
+As a reference-free baseline, **CLIP-score filtering** selects samples by the
+cosine similarity between the CLIP vision and text embeddings of the *same*
 scan–report pair (no reference set required).
 
 ---
@@ -257,7 +257,7 @@ rg-curation-medical-vlm/
 │   └── utils/
 │       ├── ct_preprocessing.py   # CT slice extraction & center-mass crop
 │       ├── monai_transforms.py   # MONAI transform pipeline for CT loading
-│       ├── clip_utils.py         # Legacy CLIP text/image utilities
+│       ├── clip_utils.py         # Legacy CLIP text/image utilities (deprecated)
 │       └── text_utils.py         # Text truncation & memory utilities
 │
 ├── scripts/                      # End-to-end pipeline scripts
@@ -285,6 +285,7 @@ If you use this code in your research, please cite:
 ```bibtex
 @inproceedings{patsatzi2026rgcurationvlm,
   title     = {Reference-Guided Data Curation for 3D Medical Vision-Language Pretraining},
+  author    = {Patsatzi, Faidra Anastasia},
   url       = {https://github.com/faidrapts/rg-curation-medical-vlm},
   year      = {2026},
 }

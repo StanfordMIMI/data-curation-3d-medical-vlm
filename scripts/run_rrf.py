@@ -77,9 +77,11 @@ def main() -> None:
             )
             sys.exit(1)
 
-    vis_score_col = find_similarity_column(df_vision, "vision")
-    txt_score_col = find_similarity_column(df_text, "text")
-    if vis_score_col is None or txt_score_col is None:
+    try:
+        vis_score_col = find_similarity_column(df_vision, "vision")
+        txt_score_col = find_similarity_column(df_text, "text")
+    except ValueError as exc:
+        logger.error(str(exc))
         sys.exit(1)
 
     rrf_df = compute_rrf_scores(

@@ -5,7 +5,6 @@ Reciprocal Rank Fusion (RRF) for combining vision and text alignment scores.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import pandas as pd
 
@@ -117,7 +116,7 @@ def compute_rrf_scores(
     return merged
 
 
-def find_similarity_column(df: pd.DataFrame, label: str = "") -> Optional[str]:
+def find_similarity_column(df: pd.DataFrame, label: str = "") -> str:
     """Auto-detect the similarity score column in a DataFrame.
 
     Looks for columns containing the substring ``"similarity_score"``
@@ -125,10 +124,14 @@ def find_similarity_column(df: pd.DataFrame, label: str = "") -> Optional[str]:
 
     Args:
         df: Input DataFrame.
-        label: Descriptive label used in log messages.
+        label: Descriptive label used in error messages.
 
     Returns:
-        Name of the first matching column, or ``None`` if not found.
+        Name of the first matching column.
+
+    Raises:
+        ValueError: If no matching column is found, or if multiple matches
+            are present.
     """
     cols = [c for c in df.columns if "similarity_score" in c.lower()]
     if not cols:

@@ -59,11 +59,6 @@ def compute_longformer_embedding(
     Returns:
         1-D CPU tensor of shape ``(D,)`` with unit L2 norm.
     """
-    from rg_curation.utils.text_utils import truncate_text
-    # Only use truncate_text for None/NaN handling; the tokenizer enforces
-    # the actual 4096-token limit via truncation=True.
-    # text = truncate_text(text, max_tokens=4096)
-
     with torch.no_grad():
         tokens = tokenizer(
             text,
