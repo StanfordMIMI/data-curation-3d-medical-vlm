@@ -1,0 +1,7 @@
+sample_id,image_file,findings
+ref_15,15_view1_frontal.png,Normal chest radiograph. No acute cardiopulmonary process. The lungs are clear bilaterally. Cardiomediastinal silhouette is within normal limits. No pleural effusion or pneumothorax.
+ref_16,16_view1_frontal.png,Right upper lobe nodule measuring approximately 8mm. Recommend CT for further characterization. No pleural effusion or pneumothorax. Cardiac size is normal.
+ref_17,17_view1_frontal.png,"Bilateral pleural effusions, left greater than right. Cardiomegaly. Vascular congestion consistent with congestive heart failure. No pneumothorax."
+ref_18,18_view1_frontal.png,No acute cardiopulmonary findings. Clear lung fields bilaterally. Normal cardiac size. No pneumothorax or effusion. Bones appear intact.
+ref_19,19_view1_frontal.png,Left lower lobe consolidation compatible with pneumonia. No pleural effusion. Cardiac silhouette is normal. No pneumothorax identified.
+ref_20,20_view2_lateral.png,Lateral view shows mildly increased AP diameter. No pneumothorax or pleural effusion. No evidence of focal consolidation. Mild degenerative changes in the thoracic spine.

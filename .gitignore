@@ -208,3 +208,9 @@ __marimo__/
 
 # Large CT volumes (exceed GitHub 100MB limit)
 examples/ct/*.nii.gz
+
+# Output files
+examples/outputs/
+
+# Hugging Face cached models
+models/

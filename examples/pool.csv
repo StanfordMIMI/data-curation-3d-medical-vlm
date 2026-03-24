@@ -1,0 +1,15 @@
+sample_id,image_file,findings
+pool_01,01_view1_frontal.png,The lungs are clear without focal consolidation pneumothorax or pleural effusion. The cardiomediastinal silhouette is within normal limits. No acute osseous abnormalities.
+pool_02,02_view1_frontal.png,Mild cardiomegaly is present. The lungs are otherwise clear. No pleural effusion or pneumothorax. Mild pulmonary vascular congestion noted.
+pool_03,03_view2_lateral.png,Lateral view demonstrates no acute cardiopulmonary process. The retrosternal space is clear. No evidence of pleural effusion. Vertebral bodies appear intact.
+pool_04,04_view1_frontal.png,There is a small right pleural effusion. The left lung is clear. No pneumothorax. The cardiac silhouette is mildly enlarged. Mild interstitial edema.
+pool_05,05_view2_frontal.png,Bibasilar atelectasis is noted. No pneumothorax or large pleural effusion. Cardiomediastinal contour is unremarkable. The osseous structures appear intact.
+pool_06,06_view1_frontal.png,The lungs are hyperinflated suggesting underlying emphysema. Flattening of the diaphragms is seen. No acute consolidation or pneumothorax. No pleural effusion.
+pool_07,07_view1_frontal.png,Right lower lobe consolidation consistent with pneumonia. No pneumothorax. Small right pleural effusion cannot be excluded. Cardiac size is normal.
+pool_08,08_view1_frontal.png,No acute cardiopulmonary process. The lungs are clear bilaterally. The heart size is normal. No pneumothorax or pleural effusion identified.
+pool_09,09_view2_frontal.png,Mild pulmonary edema with perihilar haze and Kerley B lines bilaterally. Cardiomegaly. Small bilateral pleural effusions. No pneumothorax.
+pool_10,10_view1_frontal.png,The endotracheal tube tip is at approximately 4 cm above the carina. The lungs show bilateral diffuse infiltrates. No pneumothorax. Lines and tubes are in appropriate position.
+pool_11,11_view1_frontal.png,No acute disease. Lungs are clear. Heart size is normal. No pleural effusion or pneumothorax. Bony thorax is intact.
+pool_12,12_view1_frontal.png,Subsegmental atelectasis in the left lower lobe. No pneumonia or pneumothorax. Cardiomediastinal silhouette is stable. Mild pleural thickening on the left.
+pool_13,13_view1_frontal.png,Elevated right hemidiaphragm noted. No pleural effusion or pneumothorax. The lungs are otherwise clear. The cardiac silhouette appears within normal limits.
+pool_14,14_view1_frontal.png,Diffuse bilateral patchy opacities consistent with multifocal pneumonia or pulmonary edema. No pneumothorax. Cardiac size is mildly enlarged. Clinical correlation recommended.
