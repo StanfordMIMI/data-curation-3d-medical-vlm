@@ -7,95 +7,77 @@ neighbours in D0 for each reference sample, then deduplicates so that each
 pool sample is retained at most once — with the similarity score equal to
 its maximum cosine similarity to any reference sample.
 
+Embeddings are represented uniformly as ``(S, D)`` arrays, where ``S`` is the
+number of encoded views per sample: one row per extracted axial slice for CT
+volumes, exactly one row for 2D chest X-rays.  Similarity is therefore the
+average slice-aligned cosine similarity in general, which reduces to plain
+cosine similarity when ``S = 1``.  Single-view pools take a vectorised path
+(one matrix product for the whole pool); multi-view pools fall back to a
+per-sample comparison.
+
 Three alignment strategies are supported:
 
 ``vision_only``
-    Uses DreamSim slice embeddings.  Similarity is computed as the
-    average slice-aligned cosine similarity between two volumes.
+    DreamSim embeddings.
 
 ``text_only``
-    Uses Clinical Longformer sentence embeddings (one vector per sample).
-    Similarity is standard cosine similarity.
+    Clinical Longformer embeddings (always single-view).
 
 ``early_fusion``
-    Concatenates per-slice DreamSim embeddings with the (broadcast)
-    Longformer embedding, then applies slice-aligned cosine similarity on
-    the joint representation.  Each modality is L2-normalised before
+    Per-view DreamSim embeddings concatenated with the (broadcast)
+    Longformer embedding.  Each modality is L2-normalised before
     concatenation.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-import torch
-from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 
+from rg_curation.embeddings import store
+
 logger = logging.getLogger(__name__)
+
+METHODS = ("vision_only", "text_only", "early_fusion")
 
 
 # ---------------------------------------------------------------------------
 # Embedding I/O
 # ---------------------------------------------------------------------------
 
-def load_dreamsim_embedding(
-    sample_id: str,
-    embeddings_dir: str,
-) -> Optional[np.ndarray]:
-    """Load DreamSim slice embeddings for *sample_id* from *embeddings_dir*.
+def load_dreamsim_embedding(sample_id: str, embeddings_dir: str) -> np.ndarray:
+    """Load DreamSim embeddings for a single sample.
 
     Args:
-        sample_id: Unique sample identifier (used as the filename stem).
-        embeddings_dir: Directory containing ``{sample_id}.pt`` files.
+        sample_id: Unique sample identifier.
+        embeddings_dir: Directory of ``.pt`` files, in either supported
+            layout (see :mod:`rg_curation.embeddings.store`).
 
     Returns:
-        Float32 NumPy array of shape ``(num_slices, D)`` or ``None`` if the
-        file is missing or cannot be loaded.
+        Float32 array of shape ``(S, D)``.
     """
-    pt_path = os.path.join(embeddings_dir, f"{sample_id}.pt")
-    if not os.path.exists(pt_path):
-        raise Exception(f"Could not find DreamSim embedding for {sample_id}: {pt_path}")
-    try:
-        data = torch.load(pt_path, map_location="cpu")
-        embs = np.array([entry["embedding"].numpy() for entry in data], dtype=np.float32)
-        return embs
-    except Exception as exc:
-        raise Exception(f"Could not load DreamSim embedding for {sample_id}: {exc}")
+    return store.load_embeddings(embeddings_dir, [sample_id], desc="")[sample_id]
 
 
-def load_text_embedding(
-    sample_id: str,
-    embeddings_dir: str,
-) -> Optional[np.ndarray]:
-    """Load a Clinical Longformer text embedding for *sample_id*.
-
-    The .pt file is expected to contain a dict with an ``"embedding"`` key
-    (as saved by the generation script).
+def load_text_embedding(sample_id: str, embeddings_dir: str) -> np.ndarray:
+    """Load the Clinical Longformer embedding for a single sample.
 
     Args:
-        sample_id: Unique sample identifier (filename stem).
-        embeddings_dir: Directory containing ``{sample_id}.pt`` files.
+        sample_id: Unique sample identifier.
+        embeddings_dir: Directory of ``.pt`` files.
 
     Returns:
-        1-D float32 NumPy array or ``None`` if the file is missing or corrupt.
+        Float32 array of shape ``(1, D)``.
     """
-    pt_path = os.path.join(embeddings_dir, f"{sample_id}.pt")
-    if not os.path.exists(pt_path):
-        raise Exception(f"Could not find text embedding for {sample_id}: {pt_path}")
-    try:
-        data = torch.load(pt_path, map_location="cpu")
-        return data["embedding"].numpy().astype(np.float32)
-    except Exception as exc:
-        raise Exception(f"Could not load text embedding for {sample_id}: {exc}")
+    return store.load_embeddings(embeddings_dir, [sample_id], desc="")[sample_id]
 
 
 # ---------------------------------------------------------------------------
-# Embedding normalisation and similarity
+# Normalisation and similarity
 # ---------------------------------------------------------------------------
 
 def normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
@@ -116,21 +98,19 @@ def normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
     return embeddings / norms
 
 
-def compute_slice_aligned_similarity(
-    emb_a: np.ndarray,
-    emb_b: np.ndarray,
-) -> float:
-    """Average slice-aligned cosine similarity between two volumes.
+def compute_slice_aligned_similarity(emb_a: np.ndarray, emb_b: np.ndarray) -> float:
+    """Average slice-aligned cosine similarity between two samples.
 
-    Slices are compared in order up to the minimum slice count of the two
-    volumes.  Both inputs must already be L2-normalised.
+    Views are compared in order up to the minimum view count of the two
+    samples.  Both inputs must already be L2-normalised.  For single-view
+    embeddings this is plain cosine similarity.
 
     Args:
-        emb_a: Array of shape ``(S_a, D)`` — normalised slice embeddings.
-        emb_b: Array of shape ``(S_b, D)`` — normalised slice embeddings.
+        emb_a: Normalised array of shape ``(S_a, D)``.
+        emb_b: Normalised array of shape ``(S_b, D)``.
 
     Returns:
-        Mean cosine similarity (float).
+        Mean cosine similarity.
     """
     n = min(len(emb_a), len(emb_b))
     if n == 0:
@@ -139,83 +119,145 @@ def compute_slice_aligned_similarity(
 
 
 def build_early_fusion_embedding(
-    dreamsim_emb: np.ndarray,
+    vision_emb: np.ndarray,
     text_emb: np.ndarray,
 ) -> np.ndarray:
-    """Concatenate normalised DreamSim and text embeddings (early fusion).
+    """Concatenate normalised vision and text embeddings (early fusion).
 
-    The Longformer embedding is broadcast to match the number of DreamSim
-    slices so that slice-aligned similarity can be computed on the joint
-    representation.
+    The text embedding is broadcast across the vision views so that
+    slice-aligned similarity can be computed on the joint representation.
 
     Args:
-        dreamsim_emb: Array of shape ``(S, D_v)`` — DreamSim slice
-            embeddings (not necessarily normalised).
-        text_emb: 1-D array of shape ``(D_t,)`` — Longformer embedding.
+        vision_emb: Array of shape ``(S, D_v)``.
+        text_emb: Array of shape ``(1, D_t)`` or ``(D_t,)``.
 
     Returns:
         Float32 array of shape ``(S, D_v + D_t)`` with unit-norm rows.
     """
-    dreamsim_norm = normalize_embeddings(dreamsim_emb)
-    text_norm = normalize_embeddings(text_emb)
-    text_broadcast = np.tile(text_norm, (len(dreamsim_emb), 1))
-    fused = np.concatenate([dreamsim_norm, text_broadcast], axis=1).astype(np.float32)
+    vision_norm = normalize_embeddings(vision_emb)
+    text_norm = normalize_embeddings(np.asarray(text_emb).reshape(-1))
+    text_broadcast = np.tile(text_norm, (len(vision_emb), 1))
+    fused = np.concatenate([vision_norm, text_broadcast], axis=1).astype(np.float32)
     return normalize_embeddings(fused)
+
+
+# ---------------------------------------------------------------------------
+# Assembling per-method embeddings
+# ---------------------------------------------------------------------------
+
+def _build_method_cache(
+    sample_ids: Sequence[str],
+    method: str,
+    vision_dir: Optional[str],
+    text_dir: Optional[str],
+    label: str,
+) -> Dict[str, np.ndarray]:
+    """Load and combine the embeddings required by *method*.
+
+    Args:
+        sample_ids: IDs to load.
+        method: One of :data:`METHODS`.
+        vision_dir: DreamSim embedding directory (vision/early-fusion only).
+        text_dir: Longformer embedding directory (text/early-fusion only).
+        label: Human-readable name used in log lines.
+
+    Returns:
+        Mapping of sample ID to a normalised ``(S, D)`` array.  IDs whose
+        embeddings are absent are omitted.
+    """
+    use_vision = method in ("vision_only", "early_fusion")
+    use_text = method in ("text_only", "early_fusion")
+
+    vision = (
+        store.load_embeddings(vision_dir, sample_ids, desc=f"{label} vision embeddings")
+        if use_vision
+        else {}
+    )
+    text = (
+        store.load_embeddings(text_dir, sample_ids, desc=f"{label} text embeddings")
+        if use_text
+        else {}
+    )
+
+    cache: Dict[str, np.ndarray] = {}
+    for sample_id in sample_ids:
+        if use_vision and use_text:
+            if sample_id not in vision or sample_id not in text:
+                continue
+            cache[sample_id] = normalize_embeddings(
+                build_early_fusion_embedding(vision[sample_id], text[sample_id])
+            )
+        elif use_vision:
+            if sample_id not in vision:
+                continue
+            cache[sample_id] = normalize_embeddings(vision[sample_id])
+        else:
+            if sample_id not in text:
+                continue
+            cache[sample_id] = normalize_embeddings(text[sample_id])
+
+    missing = len(sample_ids) - len(cache)
+    if missing:
+        logger.warning(f"{label}: {missing} of {len(sample_ids)} samples have no embedding")
+    return cache
+
+
+def _is_single_view(cache: Dict[str, np.ndarray]) -> bool:
+    """True if every embedding in *cache* has exactly one view."""
+    return all(emb.shape[0] == 1 for emb in cache.values())
 
 
 # ---------------------------------------------------------------------------
 # k-NN search
 # ---------------------------------------------------------------------------
 
-def _find_knn_text(
-    query_emb: np.ndarray,
-    pool_embs: np.ndarray,
+def _knn_matrix(
+    query: np.ndarray,
+    pool_matrix: np.ndarray,
     k: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Batch cosine-similarity kNN for single-vector embeddings (text/2D).
+    """Top-k cosine similarity against a stacked pool matrix.
+
+    Both inputs must be L2-normalised, so the dot product is the cosine.
 
     Args:
-        query_emb: 1-D normalised query embedding.
-        pool_embs: 2-D array of shape ``(N, D)`` — pool embeddings stacked
-            as rows.
-        k: Number of nearest neighbours.
+        query: Normalised query of shape ``(D,)``.
+        pool_matrix: Normalised pool of shape ``(N, D)``.
+        k: Number of neighbours.
 
     Returns:
-        Tuple of ``(indices, similarities)`` for the top-k pool items,
-        sorted descending by similarity.
+        ``(indices, similarities)``, sorted descending by similarity.
     """
-    sims = cosine_similarity([query_emb], pool_embs)[0]
-    top_k = np.argsort(sims)[-k:][::-1]
+    sims = pool_matrix @ query
+    k = min(k, len(sims))
+    top_k = np.argpartition(-sims, k - 1)[:k]
+    top_k = top_k[np.argsort(-sims[top_k])]
     return top_k, sims[top_k]
 
 
-def _find_knn_slices(
-    query_norm: np.ndarray,
+def _knn_multi_view(
+    query: np.ndarray,
     pool_cache: Dict[str, np.ndarray],
     pool_ids: List[str],
     k: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Slice-aligned cosine-similarity kNN for volumetric embeddings.
+    """Top-k slice-aligned similarity for multi-view (volumetric) embeddings.
 
     Args:
-        query_norm: Normalised slice embeddings of shape ``(S_q, D)``.
-        pool_cache: Dict mapping sample IDs to normalised slice embedding
-            arrays.
-        pool_ids: Ordered list of sample IDs (defines index positions).
-        k: Number of nearest neighbours.
+        query: Normalised query of shape ``(S_q, D)``.
+        pool_cache: Normalised pool embeddings by ID.
+        pool_ids: Ordered IDs defining index positions.
+        k: Number of neighbours.
 
     Returns:
-        Tuple of ``(indices, similarities)`` for the top-k pool items.
+        ``(indices, similarities)``, sorted descending by similarity.
     """
     sims = np.array(
-        [
-            compute_slice_aligned_similarity(query_norm, pool_cache[sid])
-            if sid in pool_cache
-            else 0.0
-            for sid in pool_ids
-        ]
+        [compute_slice_aligned_similarity(query, pool_cache[sid]) for sid in pool_ids]
     )
-    top_k = np.argsort(sims)[-k:][::-1]
+    k = min(k, len(sims))
+    top_k = np.argpartition(-sims, k - 1)[:k]
+    top_k = top_k[np.argsort(-sims[top_k])]
     return top_k, sims[top_k]
 
 
@@ -246,126 +288,87 @@ def run_knn_alignment(
             ``id_column``.
         ref_df: DataFrame for the reference set (D_ref).  Must contain
             ``id_column``.
-        method: One of ``"vision_only"``, ``"text_only"``,
-            ``"early_fusion"``.
+        method: One of :data:`METHODS`.
         k: Number of nearest neighbours per reference sample.
-        id_column: Name of the unique sample identifier column
-            (default: ``"sample_id"``).
-        vision_embeddings_dir: Directory with DreamSim .pt files for the
-            *reference* set.  Falls back to ``pool_vision_embeddings_dir``
-            if ``None``.
-        text_embeddings_dir: Directory with Longformer .pt files for the
-            *reference* set.  Falls back to ``pool_text_embeddings_dir``
-            if ``None``.
-        pool_vision_embeddings_dir: Directory with DreamSim .pt files for
-            the *pool*.  Required for ``"vision_only"`` and
-            ``"early_fusion"``.
-        pool_text_embeddings_dir: Directory with Longformer .pt files for
-            the *pool*.  Required for ``"text_only"`` and
-            ``"early_fusion"``.
+        id_column: Name of the unique sample identifier column.
+        vision_embeddings_dir: DreamSim directory for the *reference* set.
+            Falls back to ``pool_vision_embeddings_dir``.
+        text_embeddings_dir: Longformer directory for the *reference* set.
+            Falls back to ``pool_text_embeddings_dir``.
+        pool_vision_embeddings_dir: DreamSim directory for the *pool*.
+            Defaults to ``vision_embeddings_dir``.
+        pool_text_embeddings_dir: Longformer directory for the *pool*.
+            Defaults to ``text_embeddings_dir``.
 
     Returns:
-        Deduplicated DataFrame of aligned pool samples.  Added columns:
+        Deduplicated DataFrame of aligned pool samples, sorted by descending
+        score.  Added columns:
 
-        - ``similarity_score``: max cosine similarity to any reference
-          sample.
-        - ``ref_sample_id``: identifier of the closest reference match.
-        - ``neighbor_rank``: rank of this pool sample within its matched
-          reference query (1 = closest).
+        - ``similarity_score``: max cosine similarity to any reference sample.
+        - ``ref_{id_column}``: identifier of the closest reference match.
+        - ``neighbor_rank``: rank within its matched reference query
+          (1 = closest).
     """
-    if method not in ("vision_only", "text_only", "early_fusion"):
-        raise ValueError(f"Unknown method '{method}'.  Choose from: "
-                         "vision_only, text_only, early_fusion")
+    if method not in METHODS:
+        raise ValueError(f"Unknown method '{method}'. Choose from: {', '.join(METHODS)}")
 
-    use_vision = method in ("vision_only", "early_fusion")
-    use_text = method in ("text_only", "early_fusion")
-
-    # Default: same directory for pool and reference embeddings.
-    if vision_embeddings_dir is None:
-        vision_embeddings_dir = pool_vision_embeddings_dir
-    if text_embeddings_dir is None:
-        text_embeddings_dir = pool_text_embeddings_dir
-
+    # Reference dirs default to the pool dirs and vice versa, so a single
+    # --vision-embeddings-dir / --text-embeddings-dir covers the common case
+    # where pool and reference embeddings live together.
+    ref_vision_dir = vision_embeddings_dir or pool_vision_embeddings_dir
+    ref_text_dir = text_embeddings_dir or pool_text_embeddings_dir
     pool_vision_dir = pool_vision_embeddings_dir or vision_embeddings_dir
     pool_text_dir = pool_text_embeddings_dir or text_embeddings_dir
 
-    pool_ids = pool_df[id_column].tolist()
+    pool_ids = pool_df[id_column].astype(str).tolist()
+    ref_ids = ref_df[id_column].astype(str).tolist()
 
-    # ------------------------------------------------------------------
-    # Load pool embeddings into memory
-    # ------------------------------------------------------------------
-    logger.info("Loading pool embeddings into memory…")
-    pool_emb_cache: Dict[str, np.ndarray] = {}
-    missing_vision = missing_text = 0
+    logger.info(f"Loading pool embeddings ({method})…")
+    pool_cache = _build_method_cache(pool_ids, method, pool_vision_dir, pool_text_dir, "Pool")
+    if not pool_cache:
+        raise RuntimeError("No pool embeddings could be loaded.")
 
-    for _, row in tqdm(pool_df.iterrows(), total=len(pool_df), desc="Pool embeddings"):
-        sid = row[id_column]
+    logger.info(f"Loading reference embeddings ({method})…")
+    ref_cache = _build_method_cache(ref_ids, method, ref_vision_dir, ref_text_dir, "Reference")
+    if not ref_cache:
+        raise RuntimeError("No reference embeddings could be loaded.")
 
-        if use_vision and use_text:
-            v_emb = load_dreamsim_embedding(sid, pool_vision_dir)
-            t_emb = load_text_embedding(sid, pool_text_dir)
-            emb = normalize_embeddings(build_early_fusion_embedding(v_emb, t_emb))
-        elif use_vision:
-            v_emb = load_dreamsim_embedding(sid, pool_vision_dir)
-            emb = normalize_embeddings(v_emb)
-        else:  # text only
-            t_emb = load_text_embedding(sid, pool_text_dir)
-            emb = normalize_embeddings(t_emb)
+    valid_pool_ids = [sid for sid in pool_ids if sid in pool_cache]
 
-        pool_emb_cache[sid] = emb
-
-    valid_pool_ids = [s for s in pool_ids if s in pool_emb_cache]
-    logger.info(
-        f"Pool embeddings loaded: {len(pool_emb_cache)} / {len(pool_ids)} "
-    )
-
-    # For text-only we stack all embeddings into a matrix for efficient batch
-    # cosine-similarity computation.
-    if method == "text_only":
-        pool_matrix = np.vstack([pool_emb_cache[s] for s in valid_pool_ids])
+    # Single-view pools (chest X-rays, and text embeddings for any modality)
+    # collapse to one matrix product per reference sample.  Multi-view pools
+    # (CT volumes) need the slice-aligned comparison.
+    single_view = _is_single_view(pool_cache) and _is_single_view(ref_cache)
+    if single_view:
+        pool_matrix = np.vstack([pool_cache[sid] for sid in valid_pool_ids])
+        logger.info(f"Single-view pool: {pool_matrix.shape[0]} x {pool_matrix.shape[1]}")
     else:
-        pool_matrix = None  # Not used; slice-aligned computation uses cache directly.
+        pool_matrix = None
+        views = {emb.shape[0] for emb in pool_cache.values()}
+        logger.info(f"Multi-view pool: {len(valid_pool_ids)} samples, views per sample {sorted(views)}")
 
-    # ------------------------------------------------------------------
-    # Process reference set: find k-NN in pool
-    # ------------------------------------------------------------------
-    logger.info(f"Running {method} kNN alignment (k={k}) over {len(ref_df)} reference samples…")
+    logger.info(
+        f"Running {method} kNN alignment (k={k}) over {len(ref_cache)} reference samples…"
+    )
     aligned_records = []
-    skipped_ref = 0
 
-    for _, ref_row in tqdm(ref_df.iterrows(), total=len(ref_df), desc="Reference kNN"):
-        ref_id = ref_row[id_column]
+    for ref_id in tqdm(ref_ids, desc="Reference kNN"):
+        if ref_id not in ref_cache:
+            continue
+        ref_emb = ref_cache[ref_id]
 
-        if use_vision and use_text:
-            v_emb = load_dreamsim_embedding(ref_id, vision_embeddings_dir)
-            t_emb = load_text_embedding(ref_id, text_embeddings_dir)
-            ref_emb = normalize_embeddings(build_early_fusion_embedding(v_emb, t_emb))
-        elif use_vision:
-            v_emb = load_dreamsim_embedding(ref_id, vision_embeddings_dir)
-            ref_emb = normalize_embeddings(v_emb)
+        if single_view:
+            nn_indices, nn_sims = _knn_matrix(ref_emb.reshape(-1), pool_matrix, k)
         else:
-            t_emb = load_text_embedding(ref_id, text_embeddings_dir)
-            ref_emb = normalize_embeddings(t_emb)
+            nn_indices, nn_sims = _knn_multi_view(ref_emb, pool_cache, valid_pool_ids, k)
 
-        try:
-            if method == "text_only":
-                nn_indices, nn_sims = _find_knn_text(ref_emb, pool_matrix, k)
-                nn_ids = [valid_pool_ids[i] for i in nn_indices]
-            else:
-                nn_indices, nn_sims = _find_knn_slices(
-                    ref_emb, pool_emb_cache, valid_pool_ids, k
-                )
-                nn_ids = [valid_pool_ids[i] for i in nn_indices]
-        except Exception as exc:
-            raise Exception(f"kNN failed for reference sample {ref_id}: {exc}")
-
-        for rank, (pool_sample_id, sim) in enumerate(zip(nn_ids, nn_sims)):
+        for rank, (idx, sim) in enumerate(zip(nn_indices, nn_sims), start=1):
             aligned_records.append(
                 {
-                    id_column: pool_sample_id,
+                    id_column: valid_pool_ids[idx],
                     f"ref_{id_column}": ref_id,
                     "similarity_score": float(sim),
-                    "neighbor_rank": rank + 1,
+                    "neighbor_rank": rank,
                 }
             )
 
@@ -376,16 +379,16 @@ def run_knn_alignment(
     aligned_df = pd.DataFrame(aligned_records)
     logger.info(f"Pre-deduplication: {len(aligned_df)} (pool_id, ref_id) pairs")
 
-    # ------------------------------------------------------------------
-    # Deduplication: keep each pool sample once (best rank = rank 1)
-    # ------------------------------------------------------------------
+    # Keep each pool sample once, at its best (lowest) neighbour rank.
     aligned_df = aligned_df.sort_values([id_column, "neighbor_rank"])
     aligned_df = aligned_df.drop_duplicates(subset=[id_column], keep="first")
     aligned_df = aligned_df.sort_values("similarity_score", ascending=False)
     aligned_df = aligned_df.reset_index(drop=True)
 
-    # Merge back with pool metadata columns
-    pool_meta = pool_df.set_index(id_column)
+    # Attach the pool metadata columns.
+    pool_meta = pool_df.copy()
+    pool_meta[id_column] = pool_meta[id_column].astype(str)
+    pool_meta = pool_meta.set_index(id_column)
     aligned_df = aligned_df.join(pool_meta, on=id_column, how="left")
 
     logger.info(f"Post-deduplication: {len(aligned_df)} unique pool samples retained")
