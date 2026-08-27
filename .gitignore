@@ -212,5 +212,13 @@ examples/ct/*.nii.gz
 # Output files
 examples/outputs/
 
-# Hugging Face cached models
-models/
+# Hugging Face cached models (repo root only -- must not match cxr/models/)
+/models/
+
+# Paper sources -- local only, never published with the code
+/paper/
+
+# SLURM job logs
+logs/
+*.out
+*.err
