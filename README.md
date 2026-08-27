@@ -4,12 +4,21 @@
   <img src="assets/method_rrf.png" width="60%" alt="Reference-guided curation pipeline: embedding generation, alignment, and RRF." />
 </p>
 
-This repository contains the data curation pipeline described in the paper "Reference-Guided Data Curation for 3D Medical Vision-Language Pretraining".
+This repository contains the data curation pipeline described in the paper
+"Reference-Guided Data Curation for 3D Medical Vision-Language Pretraining",
+together with the downstream chest X-ray training and evaluation code.
 
 The pipeline filters a large, uncurated pool of medical scan–report pairs
-(D₀) by aligning them to a small, high-quality reference set
-(D_ref), producing a curated subset D_C ⊆ D₀ that maximises downstream
+(D₀) by aligning it to a small, high-quality reference set (D_ref),
+producing a curated subset D_C ⊆ D₀ that maximises downstream
 vision-language model performance.
+
+The same curation code covers both modalities in the paper:
+
+| Modality | Pool | Reference | Downstream model |
+|---|---|---|---|
+| **3D abdominal CT** | Merlin / mixed 35k | Merlin validation split | Merlin (I3D ResNet-152) |
+| **2D chest X-ray** | CheXpert Plus, 58k studies | CheXpert Plus validation split | SigLIP ViT (included, see [`docs/CXR.md`](docs/CXR.md)) |
 
 ---
 
@@ -24,6 +33,7 @@ vision-language model performance.
   - [Step 3 — Alignment-Based Filtering](#step-3--alignment-based-filtering)
   - [Step 4 — Reciprocal Rank Fusion](#step-4--reciprocal-rank-fusion)
   - [Step 5 — Select Top-N Samples](#step-5--select-top-n-samples)
+- [Chest X-ray Experiments](#chest-x-ray-experiments)
 - [Repository Structure](#repository-structure)
 - [Citation](#citation)
 
@@ -59,13 +69,19 @@ As a reference-free baseline, **CLIP-score filtering** selects samples by the
 cosine similarity between the CLIP vision and text embeddings of the *same*
 scan–report pair (no reference set required).
 
+Embeddings are stored as `(S, D)` arrays, where `S` is the number of encoded
+views per sample — one row per extracted axial slice for a CT volume, exactly
+one row for a chest radiograph. Similarity is the average slice-aligned cosine
+similarity, which reduces to plain cosine similarity when `S = 1`, so both
+modalities run through the same alignment code.
+
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/faidrapts/rg-curation-medical-vlm.git
-cd rg-curation-medical-vlm
+git clone https://github.com/faidrapts/rg-curation-3d-medical-vlm.git
+cd rg-curation-3d-medical-vlm
 pip install -r requirements.txt
 ```
 
@@ -78,14 +94,18 @@ Both the pool and reference CSVs must contain at minimum:
 | Column | Description |
 |--------|-------------|
 | `sample_id` | Unique identifier for the scan–report pair |
-| `image_file` | Image filename (basename relative to `--image-dir`) |
+| `image_file` | Image path (relative to `--image-dir`, or a bare filename) |
 | `findings` | Radiology report findings section |
 
-The column names are fully configurable via `--id-column`,
-`--image-column`, and `--text-column`.
+The column names are configurable via `--id-column`, `--image-column`, and
+`--text-column`.
 
-**CT volumes** should be stored as `.nii.gz` files.  
-**CXR images** should be stored as `.png` or `.jpg` files.
+**CT volumes** should be stored as `.nii.gz` files.
+**CXR images** may be `.png`, `.jpg`, or `.dcm` (DICOM is decoded and rescaled
+to 8-bit RGB automatically).
+
+For CheXpert Plus, `scripts/prepare_chexpert_plus.py` generates both CSVs
+directly from the released metadata.
 
 ---
 
@@ -129,8 +149,14 @@ python scripts/generate_longformer_embeddings.py \
 ```
 
 > Run the same commands for the reference set, saving to the same embedding
-> directories (sample IDs are used as filenames, so pool and reference
+> directories (sample IDs are used as the lookup key, so pool and reference
 > embeddings coexist without conflict).
+
+**Storage layout.** By default each sample is written to its own
+`{sample_id}.pt`. For large pools, `--batch-size 1000` instead writes 1000
+embeddings per file, keeping a 58k-sample pool to ~60 files rather than ~58k —
+which matters on a parallel filesystem. Both layouts are detected and read
+automatically downstream, and both are resumable.
 
 ---
 
@@ -194,6 +220,10 @@ python scripts/run_alignment.py \
 > The `--top-n` flag can be added to any `run_alignment.py` call to
 > combine Steps 3 and 5 in one command.
 
+Each reference sample contributes at most `k` neighbours, so the candidate
+union is bounded by `(k_V + k_T) · |D_ref|`. Choose `k` so the deduplicated
+union exceeds the target budget — smaller reference sets need larger `k`.
+
 ---
 
 ### Step 4 — Reciprocal Rank Fusion
@@ -209,6 +239,10 @@ python scripts/run_rrf.py \
     --w-vision 1.0 \
     --w-text   1.0
 ```
+
+The output covers the union of both candidate sets. Metadata is taken from the
+vision ranking and filled from the text ranking for samples only the text
+ranking retrieved, so every row carries its image path and report text.
 
 ---
 
@@ -241,38 +275,87 @@ python scripts/select_top_n.py \
 
 ---
 
+## Chest X-ray Experiments
+
+The CXR setting adds metadata preparation, DICOM decoding, and a downstream
+SigLIP ViT — the curation stages themselves are the shared code above.
+
+```bash
+# 1. Pool (58,006 studies) and reference set from the CheXpert Plus release
+python scripts/prepare_chexpert_plus.py \
+    --metadata   /data/chexpertplus/df_chexpert_plus_240401.csv \
+    --output-dir /data/chexpertplus/curation/
+
+# 2. Embeddings (one-time cost, reused by every configuration)
+ENCODER=dreamsim   ... sbatch scripts/slurm/cxr_embeddings.sbatch
+ENCODER=longformer ... sbatch scripts/slurm/cxr_embeddings.sbatch
+
+# 3. Curate: alignment -> RRF -> top-N -> training JSONL
+K_VISION=200 K_TEXT=200 TOP_N=17402 bash scripts/run_cxr_curation.sh
+
+# 4. Train and 5. evaluate
+sbatch scripts/slurm/cxr_train.sbatch
+sbatch scripts/slurm/cxr_evaluate.sbatch
+```
+
+**[`docs/CXR.md`](docs/CXR.md)** gives the full walkthrough, the per-budget `k`
+values, the training hyperparameters, and the zero-shot evaluation protocol.
+
+---
+
 ## Repository Structure
 
 ```
-rg-curation-medical-vlm/
+rg-curation-3d-medical-vlm/
 │
-├── rg_curation/                  # Core library
+├── rg_curation/                  # Curation library (modality-agnostic)
 │   ├── embeddings/
 │   │   ├── dreamsim.py           # DreamSim embedding generation (CT & CXR)
 │   │   ├── longformer.py         # Clinical Longformer text embeddings
-│   │   └── clip_score.py         # CLIP vision–text alignment scores
+│   │   ├── clip_score.py         # CLIP vision–text alignment scores
+│   │   └── store.py              # Batched / per-sample embedding I/O
 │   ├── filtering/
 │   │   ├── alignment.py          # kNN alignment (vision, text, early fusion)
 │   │   └── rrf.py                # Reciprocal Rank Fusion
+│   ├── datasets/
+│   │   └── chexpert_plus.py      # CheXpert Plus metadata -> pool / reference
 │   └── utils/
 │       ├── ct_preprocessing.py   # CT slice extraction & center-mass crop
 │       ├── monai_transforms.py   # MONAI transform pipeline for CT loading
+│       ├── cxr_preprocessing.py  # DICOM decoding & image path resolution
 │       ├── clip_utils.py         # Legacy CLIP text/image utilities (deprecated)
 │       └── text_utils.py         # Text truncation & memory utilities
 │
+├── cxr/                          # Downstream CXR vision-language model
+│   ├── models/
+│   │   ├── visual.py             # SigLIP vision tower (vendored, see NOTICE)
+│   │   └── siglip.py             # Contrastive vision-language model
+│   ├── data.py                   # Dataset and collator
+│   ├── train.py                  # Training entry point
+│   ├── evaluate.py               # Zero-shot evaluation entry point
+│   └── zero_shot.py              # CheXpert / MIMIC-CXR zero-shot protocol
+│
 ├── scripts/                      # End-to-end pipeline scripts
+│   ├── prepare_chexpert_plus.py
 │   ├── generate_dreamsim_embeddings.py
 │   ├── generate_longformer_embeddings.py
 │   ├── compute_clip_scores.py
 │   ├── run_alignment.py
 │   ├── run_rrf.py
-│   └── select_top_n.py
+│   ├── select_top_n.py
+│   ├── export_training_jsonl.py
+│   ├── run_cxr_curation.sh       # Curation chain for the CXR setting
+│   └── slurm/                    # SLURM submission scripts
+│
+├── docs/
+│   └── CXR.md                    # Chest X-ray walkthrough
 │
 ├── examples/
 │   ├── ct/                       # Example CT volumes (.nii.gz)
 │   └── cxr/                      # Example CXR images (.png)
 │
 ├── requirements.txt
+├── NOTICE                        # Third-party attribution
 └── README.md
 ```
 
@@ -286,7 +369,7 @@ If you use this code in your research, please cite:
 @inproceedings{patsatzi2026rgcurationvlm,
   title     = {Reference-Guided Data Curation for 3D Medical Vision-Language Pretraining},
   author    = {Patsatzi, Faidra Anastasia},
-  url       = {https://github.com/faidrapts/rg-curation-medical-vlm},
+  url       = {https://github.com/faidrapts/rg-curation-3d-medical-vlm},
   year      = {2026},
 }
 ```

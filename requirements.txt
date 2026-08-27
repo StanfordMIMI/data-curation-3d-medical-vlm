@@ -1,15 +1,27 @@
+# Core
 numpy>=1.24
 pandas>=2.0
 scikit-learn>=1.3
 scipy>=1.11
 tqdm>=4.65
+psutil>=5.9
+Pillow>=10.0
+
+# Embedding models used for curation
 torch>=2.1
 torchvision>=0.16
-dreamsim>=0.1.2
 transformers>=4.35
+dreamsim>=0.1.2
 open_clip_torch>=2.23
+
+# 3D CT preprocessing
 monai>=1.3
 nibabel>=5.1
-Pillow>=10.0
 scikit-image>=0.21
-psutil>=5.9
+
+# 2D CXR: DICOM decoding and the SigLIP training/eval stack
+pydicom>=2.4
+albumentations>=2.0
+opencv-python-headless>=4.8
+accelerate>=0.26
+safetensors>=0.4

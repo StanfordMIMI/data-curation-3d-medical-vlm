@@ -1,0 +1,171 @@
+# Chest X-ray Pipeline (CheXpert Plus)
+
+End-to-end walkthrough for the 2D chest radiograph experiments: curating a
+training subset from CheXpert Plus, training a SigLIP ViT on it, and evaluating
+zero-shot classification in and out of distribution.
+
+The curation stages are the same code as the CT pipeline — `run_alignment.py`,
+`run_rrf.py`, and `select_top_n.py` are shared. Only the metadata preparation,
+image decoding, and the downstream model differ.
+
+## Setup
+
+| | |
+|---|---|
+| **Pool** (D₀) | CheXpert Plus `train` split, restricted to studies with a usable findings section — **58,006 studies** |
+| **Reference** (D_ref) | CheXpert Plus `valid` split under the same restriction |
+| **Budgets** | 10% (5,801 studies) and 30% (17,402 studies) of the pool |
+| **Model** | `google/siglip-large-patch16-384`, run at 512 px |
+| **ID test set** | CheXpert Plus test split — 668 studies, 12 findings |
+| **OOD test set** | MIMIC-CXR test split — 3,586 studies, same 12 findings |
+
+A "usable findings section" excludes nulls, empty strings, and the `/`
+placeholder (`rg_curation.datasets.chexpert_plus.is_valid_findings`).
+
+## Data you need
+
+| Source | Used for |
+|---|---|
+| `df_chexpert_plus_240401.csv` | Metadata: splits, report sections, image paths |
+| CheXpert Plus DICOMs | Input to the DreamSim encoder |
+| CheXpert Plus PNG/JPEG renders | Input to SigLIP training and evaluation |
+| CheXpert label JSONL (`path_to_image` + 14 label columns) | Zero-shot targets |
+| MIMIC-CXR JPG tree, `TEST_FILENAMES`, `mimic-cxr-2.0.0-chexpert.csv` | OOD evaluation |
+
+## Step 1 — Prepare the pool and reference
+
+```bash
+python scripts/prepare_chexpert_plus.py \
+    --metadata   /data/chexpertplus/df_chexpert_plus_240401.csv \
+    --output-dir /data/chexpertplus/curation/
+```
+
+Writes `pool.csv` and `reference.csv`, each with a canonical `sample_id`
+(`{patient}_study{order}_{view}`), `image_file`, `dcm_file`, and `findings`.
+
+Both modalities key their embeddings on that one `sample_id`, which is what
+lets the vision and text rankings be fused in step 3 without reconciling
+identifiers.
+
+## Step 2 — Generate embeddings
+
+This is the one-time cost; every curation configuration below reuses it.
+Embeddings are written **batched** (1000 per file), so the 58k pool becomes
+~60 files rather than ~58k.
+
+```bash
+# Vision — DreamSim over the source DICOMs
+ENCODER=dreamsim \
+CURATION_DIR=/data/chexpertplus/curation \
+IMAGE_DIR=/data/chexpertplus/DICOM/Uncompressed \
+EMBEDDING_DIR=/data/embeddings/dreamsim_cxr \
+  sbatch scripts/slurm/cxr_embeddings.sbatch
+
+# Text — Clinical Longformer over the findings sections
+ENCODER=longformer \
+CURATION_DIR=/data/chexpertplus/curation \
+EMBEDDING_DIR=/data/embeddings/longformer_cxr \
+  sbatch scripts/slurm/cxr_embeddings.sbatch
+```
+
+Both jobs are resumable: rerunning skips samples already present.
+
+## Step 3 — Curate
+
+`run_cxr_curation.sh` chains alignment → rank fusion → top-N → JSONL export.
+Given the embeddings it is CPU-only and finishes in well under an hour.
+
+```bash
+CURATION_DIR=/data/chexpertplus/curation \
+VISION_EMB=/data/embeddings/dreamsim_cxr \
+TEXT_EMB=/data/embeddings/longformer_cxr \
+IMAGE_DIR=/data/chexpertplus/PNG \
+K_VISION=200 K_TEXT=200 TOP_N=17402 TAG=rrf-30pct \
+  bash scripts/run_cxr_curation.sh
+```
+
+### k values used in the paper
+
+Because each reference sample contributes at most k neighbours, k is chosen so
+the deduplicated candidate union exceeds the budget. The reference set here is
+small, so k is correspondingly large.
+
+| Budget | Method | k_vision | k_text |
+|---|---|---|---|
+| 10% | Vision-only (DreamSim) | 100 | — |
+| 10% | Text-only (Longformer) | — | 125 |
+| 10% | RRF | 100 | 125 |
+| 30% | Vision-only (DreamSim) | 400 | — |
+| 30% | Text-only (Longformer) | — | 400 |
+| 30% | RRF | 200 | 200 |
+
+RRF uses η = 60 and w_vision = w_text = 1.0 throughout.
+
+For a single-modality baseline, run `run_alignment.py` directly with
+`--top-n`, then `export_training_jsonl.py`; skip the fusion step.
+
+## Step 4 — Train
+
+```bash
+TRAIN_DATA=/data/chexpertplus/curation/rrf-30pct/curated_top17402.jsonl \
+EVAL_DATA=/data/chexpertplus/valid.jsonl \
+OUTPUT_DIR=/runs/siglip-rrf-30pct \
+ZERO_SHOT_LABELS=/data/chexpertplus/findings_fixed.json \
+MIMIC_VAL_FILENAMES=/data/mimic-cxr/VAL_FILENAMES \
+MIMIC_CXR_ROOT=/data/mimic-cxr/mimic-cxr-jpg/2.1.0 \
+MIMIC_CHEXPERT_CSV=/data/mimic-cxr/mimic-cxr-2.0.0-chexpert.csv \
+  sbatch scripts/slurm/cxr_train.sbatch
+```
+
+Hyperparameters (defaults in the sbatch, all overridable):
+
+| | |
+|---|---|
+| Backbone | `google/siglip-large-patch16-384`, vision and text |
+| Input resolution | 512 px (position embeddings interpolated from 384) |
+| Projection queries | 256 |
+| Batch size | 128 effective (64 per GPU × 2 GPUs) |
+| Epochs | 10 |
+| Optimiser | AdamW, lr 1e-5, cosine schedule, 1000 warmup steps |
+| Weight decay | 0.01 |
+| Precision | fp16 |
+
+A random-sampling baseline at the same budget uses the same command with the
+full pool as `TRAIN_DATA` plus `--max_train_samples`.
+
+## Step 5 — Evaluate
+
+```bash
+CHECKPOINT=/runs/siglip-rrf-30pct \
+EVAL_DATA=/data/chexpertplus/test.jsonl \
+ZERO_SHOT_LABELS=/data/chexpertplus/test.json \
+MIMIC_TEST_FILENAMES=/data/mimic-cxr/TEST_FILENAMES \
+MIMIC_CXR_ROOT=/data/mimic-cxr/mimic-cxr-jpg/2.1.0 \
+MIMIC_CHEXPERT_CSV=/data/mimic-cxr/mimic-cxr-2.0.0-chexpert.csv \
+  sbatch scripts/slurm/cxr_evaluate.sbatch
+```
+
+Writes `zero_shot_results.json` under `<CHECKPOINT>/eval_test_set/`.
+
+### Protocol
+
+Each finding is scored by comparing the image embedding against a positive and
+a negative prompt — `"A chest X-ray showing {finding}."` versus
+`"A chest X-ray without {finding}."` — and the higher similarity wins, so no
+decision threshold is tuned. Uncertain CheXpert labels (`-1`) are treated as
+negative. Metrics are macro-averaged over the findings with both positive and
+negative support (12 of the 14 CheXpert columns), with 95% confidence intervals
+from 1000-iteration bootstrap resampling.
+
+MIMIC-CXR labels are study-level, so `--mimic_eval_unique_studies` restricts
+evaluation to one image per study.
+
+## Notes
+
+- **DICOM vs. PNG.** Embeddings are computed from the DICOMs
+  (`--image-column dcm_file`); training and evaluation read the renders.
+  `cxr.data.resolve_image_path` rewrites a `.jpg` suffix to `.png` outside the
+  test split, matching how CheXpert Plus distributes the renders.
+- **Embedding layout.** `--batch-size 0` writes one file per sample instead;
+  `run_alignment.py` detects either layout automatically, so CT and CXR
+  embeddings can be mixed freely across runs.
