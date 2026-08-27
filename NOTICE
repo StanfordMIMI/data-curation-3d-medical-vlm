@@ -1,0 +1,35 @@
+Reference-Guided Data Curation for 3D Medical Vision-Language Pretraining
+Copyright (c) 2026 the authors.
+
+This product includes software developed by third parties, listed below.
+The project's own source is released under the MIT License (see LICENSE).
+
+--------------------------------------------------------------------------
+cxr/models/visual.py
+--------------------------------------------------------------------------
+Adapted from the CheXagent project by Stanford AIMI:
+
+    https://github.com/Stanford-AIMI/CheXagent
+    standalone/chexagent_v3/models/modeling_visual.py
+
+The file is a trimmed derivative containing only the `TransformCXR`
+augmentation stack, the sinusoidal position-embedding helpers, and the
+`CLIPModel` vision tower. Please consult the upstream repository for its
+licensing terms before redistributing this file.
+
+--------------------------------------------------------------------------
+Pretrained models
+--------------------------------------------------------------------------
+The pipeline downloads and uses the following pretrained weights at runtime.
+They are not redistributed here and remain subject to their own licenses:
+
+  DreamSim               https://github.com/ssundaram21/dreamsim
+  Clinical Longformer    https://huggingface.co/yikuan8/Clinical-Longformer
+  SigLIP                 https://huggingface.co/google/siglip-large-patch16-384
+
+--------------------------------------------------------------------------
+Datasets
+--------------------------------------------------------------------------
+No imaging data is redistributed in this repository. CheXpert Plus,
+MIMIC-CXR, and the Merlin Abdominal CT dataset are obtained from their
+respective sources under their own data use agreements.
