@@ -116,7 +116,7 @@ def compute_dreamsim_embeddings_ct(
 
 
 def compute_dreamsim_embedding_2d(
-    image_path: str,
+    image: "str | Image.Image",
     model,
     preprocess,
     device: torch.device,
@@ -124,7 +124,9 @@ def compute_dreamsim_embedding_2d(
     """Compute a single DreamSim embedding for a 2D image (e.g. chest X-ray).
 
     Args:
-        image_path: Path to a PNG/JPEG image file.
+        image: An already-loaded PIL image, or a path to a PNG/JPEG file.
+            Chest X-rays stored as DICOM should be loaded first with
+            :func:`rg_curation.utils.cxr_preprocessing.load_cxr_image`.
         model: DreamSim model with an ``embed`` method.
         preprocess: DreamSim preprocessing transform.
         device: Target device.
@@ -132,7 +134,7 @@ def compute_dreamsim_embedding_2d(
     Returns:
         Float16 tensor of shape ``(1, D)``.
     """
-    img = Image.open(image_path).convert("RGB")
+    img = Image.open(image).convert("RGB") if isinstance(image, str) else image.convert("RGB")
     tensor = preprocess(img)
     if tensor.dim() == 4:
         tensor = tensor.squeeze(0)
