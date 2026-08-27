@@ -46,10 +46,12 @@ def compute_rrf_scores(
         eta: RRF smoothing constant η (default: 60).
 
     Returns:
-        DataFrame sorted by ``rrf_score`` descending.  Contains all metadata
-        columns from *df_vision* plus an ``rrf_score`` and ``final_rank``
-        column.  Additional columns ``rank_vision`` and ``rank_text`` are
-        included for inspection.
+        DataFrame sorted by ``rrf_score`` descending, covering the union of
+        both candidate sets.  Metadata columns are taken from *df_vision* and
+        filled from *df_text* for samples the vision ranking did not retrieve,
+        so every row carries its image path and report text.  Adds
+        ``rrf_score``, ``final_rank``, ``rank_vision``, ``rank_text``,
+        ``similarity_score_vision``, and ``similarity_score_text``.
     """
     for df, name, col in (
         (df_vision, "vision", vision_score_col),
@@ -60,12 +62,27 @@ def compute_rrf_scores(
         if col not in df.columns:
             raise ValueError(f"'{col}' not found in {name} DataFrame")
 
+    # Each sample must appear once per ranking, otherwise duplicates multiply
+    # through the merge below.  Keep the highest-scoring occurrence.
+    df_vision = (
+        df_vision.sort_values(vision_score_col, ascending=False)
+        .drop_duplicates(subset=[id_column], keep="first")
+        .reset_index(drop=True)
+    )
+    df_text = (
+        df_text.sort_values(text_score_col, ascending=False)
+        .drop_duplicates(subset=[id_column], keep="first")
+        .reset_index(drop=True)
+    )
+
     # Compute per-list ranks (ascending=False: higher score → rank 1).
     v_sub = df_vision[[id_column, vision_score_col]].copy()
     v_sub["rank_vision"] = v_sub[vision_score_col].rank(ascending=False, method="min")
+    v_sub = v_sub.rename(columns={vision_score_col: "similarity_score_vision"})
 
     t_sub = df_text[[id_column, text_score_col]].copy()
     t_sub["rank_text"] = t_sub[text_score_col].rank(ascending=False, method="min")
+    t_sub = t_sub.rename(columns={text_score_col: "similarity_score_text"})
 
     logger.info(
         f"Vision ranks: {v_sub['rank_vision'].min():.0f} – "
@@ -76,24 +93,29 @@ def compute_rrf_scores(
         f"{t_sub['rank_text'].max():.0f}  ({len(t_sub)} samples)"
     )
 
-    # Outer-join all pool metadata from df_vision; merge ranks from both.
-    merged = df_vision.merge(
-        v_sub[[id_column, "rank_vision"]],
+    # Ranks over the union of both candidate sets.
+    merged = v_sub.merge(t_sub, on=id_column, how="outer")
+
+    # Metadata: prefer the vision row, fall back to the text row for samples
+    # only the text ranking retrieved.  Without this fallback those samples
+    # reach training with an empty image path and empty findings.
+    meta_columns = [
+        c for c in df_vision.columns
+        if c not in (id_column, vision_score_col, "similarity_score_vision")
+    ]
+    v_meta = df_vision.set_index(id_column)[meta_columns]
+    t_meta = df_text.set_index(id_column).reindex(columns=meta_columns)
+    metadata = v_meta.combine_first(t_meta)
+
+    merged = merged.merge(
+        metadata.reset_index().rename(columns={"index": id_column}),
         on=id_column,
         how="left",
-    ).merge(
-        t_sub[[id_column, "rank_text", text_score_col]],
-        on=id_column,
-        how="outer",
-        suffixes=("", "_text"),
     )
 
     # Missing modality contribution is 0 (infinite rank penalty).
-    term_v = w_vision / (eta + merged["rank_vision"])
-    term_v = term_v.fillna(0.0)
-
-    term_t = w_text / (eta + merged["rank_text"])
-    term_t = term_t.fillna(0.0)
+    term_v = (w_vision / (eta + merged["rank_vision"])).fillna(0.0)
+    term_t = (w_text / (eta + merged["rank_text"])).fillna(0.0)
 
     merged["rrf_score"] = term_v + term_t
     merged = merged.sort_values("rrf_score", ascending=False).reset_index(drop=True)
