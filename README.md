@@ -293,7 +293,11 @@ ENCODER=longformer ... sbatch scripts/slurm/cxr_embeddings.sbatch
 # 3. Curate: alignment -> RRF -> top-N -> training JSONL
 K_VISION=200 K_TEXT=200 TOP_N=17402 bash scripts/run_cxr_curation.sh
 
-# 4. Train and 5. evaluate
+# 4. Build the evaluation lists (in and out of distribution)
+python scripts/export_eval_jsonl.py ...
+python scripts/prepare_mimic_filenames.py ...
+
+# 5. Train and 6. evaluate
 sbatch scripts/slurm/cxr_train.sbatch
 sbatch scripts/slurm/cxr_evaluate.sbatch
 ```
@@ -344,6 +348,8 @@ rg-curation-3d-medical-vlm/
 │   ├── run_rrf.py
 │   ├── select_top_n.py
 │   ├── export_training_jsonl.py
+│   ├── export_eval_jsonl.py      # Evaluation image list from a label file
+│   ├── prepare_mimic_filenames.py # MIMIC-CXR split filename lists
 │   ├── run_cxr_curation.sh       # Curation chain for the CXR setting
 │   └── slurm/                    # SLURM submission scripts
 │
