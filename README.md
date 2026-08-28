@@ -60,25 +60,6 @@ preparation, SLURM scripts, and evaluation protocols:
 - **[`docs/CT.md`](docs/CT.md)** — 3D CT: I3ResNet-152 + Clinical Longformer
 - **[`docs/CXR.md`](docs/CXR.md)** — chest X-ray: SigLIP ViT on CheXpert Plus
 
-## Model weights
-
-Trained CT checkpoints are available on the Hugging Face Hub
-([`faidrapts/rg-curation-3d-medical-vlm`](https://huggingface.co/faidrapts/rg-curation-3d-medical-vlm)):
-
-```python
-import torch
-from huggingface_hub import hf_hub_download
-from ct.models.clip3d import Clip3D
-
-path = hf_hub_download(
-    "faidrapts/rg-curation-3d-medical-vlm", "clip3d_rrf_mixed35k_30pct.pt"
-)
-model = Clip3D()
-model.load_state_dict(torch.load(path, map_location="cpu"), strict=True)
-```
-
-Pass a downloaded checkpoint to `python -m ct.evaluate --checkpoint <path>`.
-
 ## Repository structure
 
 ```

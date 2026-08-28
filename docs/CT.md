@@ -189,19 +189,11 @@ included. Metrics are per-finding F1 and the macro average, with 95%
 confidence intervals from 1000-iteration bootstrap resampling (AUPRC and
 AUROC on the continuous pos-minus-neg score are reported alongside).
 
-## Released checkpoints
-
-Trained CT checkpoints accompanying the paper are available on the Hugging
-Face Hub
-([`faidrapts/rg-curation-3d-medical-vlm`](https://huggingface.co/faidrapts/rg-curation-3d-medical-vlm)).
-They load into `ct.models.clip3d.Clip3D` with `strict=True` and can be
-passed directly to `python -m ct.evaluate --checkpoint <path>`.
-
 ## Notes
 
 - **Checkpoint compatibility.** `ct.models.clip3d.Clip3D` uses the original
-  training code's parameter names, so checkpoints released with the paper
-  load with `strict=True`.
+  training code's parameter names, so checkpoints from the paper's training
+  runs load with `strict=True`.
 - **Mixed pool.** Pass every volume directory via repeated `--image-dir`
   flags (or `IMAGE_DIR`/`IMAGE_DIR_2` in the sbatch); rows are matched to
   files by filename, so Merlin and Tri-Valley volumes can live in separate
