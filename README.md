@@ -36,6 +36,7 @@ The same curation code covers both modalities in the paper:
   - [Step 5 — Select Top-N Samples](#step-5--select-top-n-samples)
 - [3D CT Experiments](#3d-ct-experiments)
 - [Chest X-ray Experiments](#chest-x-ray-experiments)
+- [Model Weights](#model-weights)
 - [Repository Structure](#repository-structure)
 - [Citation](#citation)
 
@@ -335,6 +336,29 @@ sbatch scripts/slurm/cxr_evaluate.sbatch
 
 **[`docs/CXR.md`](docs/CXR.md)** gives the full walkthrough, the per-budget `k`
 values, the training hyperparameters, and the zero-shot evaluation protocol.
+
+---
+
+## Model Weights
+
+Trained CT checkpoints are available on the Hugging Face Hub
+([`faidrapts/rg-curation-3d-medical-vlm`](https://huggingface.co/faidrapts/rg-curation-3d-medical-vlm)).
+
+```python
+import torch
+from huggingface_hub import hf_hub_download
+
+from ct.models.clip3d import Clip3D
+
+path = hf_hub_download(
+    "faidrapts/rg-curation-3d-medical-vlm", "clip3d_rrf_mixed35k_30pct.pt"
+)
+model = Clip3D()
+model.load_state_dict(torch.load(path, map_location="cpu"), strict=True)
+```
+
+Evaluate a downloaded checkpoint with `python -m ct.evaluate --checkpoint
+<path> ...` (see [`docs/CT.md`](docs/CT.md)).
 
 ---
 
