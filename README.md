@@ -6,7 +6,8 @@
 
 This repository contains the data curation pipeline described in the paper
 "Reference-Guided Data Curation for 3D Medical Vision-Language Pretraining",
-together with the downstream chest X-ray training and evaluation code.
+together with the downstream training and evaluation code for both the 3D CT
+and the chest X-ray experiments.
 
 The pipeline filters a large, uncurated pool of medical scan–report pairs
 (D₀) by aligning it to a small, high-quality reference set (D_ref),
@@ -17,7 +18,7 @@ The same curation code covers both modalities in the paper:
 
 | Modality | Pool | Reference | Downstream model |
 |---|---|---|---|
-| **3D abdominal CT** | Merlin / mixed 35k | Merlin validation split | Merlin (I3D ResNet-152) |
+| **3D abdominal CT** | Merlin / mixed 35k | Merlin validation split | I3ResNet-152 + Clinical Longformer (included, see [`docs/CT.md`](docs/CT.md)) |
 | **2D chest X-ray** | CheXpert Plus, 58k studies | CheXpert Plus validation split | SigLIP ViT (included, see [`docs/CXR.md`](docs/CXR.md)) |
 
 ---
@@ -33,6 +34,7 @@ The same curation code covers both modalities in the paper:
   - [Step 3 — Alignment-Based Filtering](#step-3--alignment-based-filtering)
   - [Step 4 — Reciprocal Rank Fusion](#step-4--reciprocal-rank-fusion)
   - [Step 5 — Select Top-N Samples](#step-5--select-top-n-samples)
+- [3D CT Experiments](#3d-ct-experiments)
 - [Chest X-ray Experiments](#chest-x-ray-experiments)
 - [Repository Structure](#repository-structure)
 - [Citation](#citation)
@@ -275,6 +277,35 @@ python scripts/select_top_n.py \
 
 ---
 
+## 3D CT Experiments
+
+The CT setting trains a CLIP-style 3D model — an I3ResNet-152 vision encoder
+inflated from ImageNet weights paired with Clinical Longformer — on the
+curated subset, and evaluates zero-shot classification of 30 abdominal
+findings (in distribution on the Merlin test split, out of distribution on
+Tri-Valley). The curation stages are the shared code above run with
+`--modality ct`.
+
+```bash
+# 1. Pool and reference CSVs from the dataset metadata (splits 0-2 / 3)
+# 2. Embeddings (one-time cost, reused by every configuration)
+python scripts/generate_dreamsim_embeddings.py   ... --modality ct
+python scripts/generate_longformer_embeddings.py ...
+
+# 3. Curate: alignment (vision k=8, text k=7) -> RRF
+python scripts/run_alignment.py ...
+python scripts/run_rrf.py ...
+
+# 4. Train (budget applied as top-N by curation score) and 5. evaluate
+sbatch scripts/slurm/ct_train.sbatch
+sbatch scripts/slurm/ct_evaluate.sbatch
+```
+
+**[`docs/CT.md`](docs/CT.md)** gives the full walkthrough, the data format,
+the training hyperparameters, and the zero-shot evaluation protocol.
+
+---
+
 ## Chest X-ray Experiments
 
 The CXR setting adds metadata preparation, DICOM decoding, and a downstream
@@ -330,6 +361,18 @@ rg-curation-3d-medical-vlm/
 │       ├── clip_utils.py         # Legacy CLIP text/image utilities (deprecated)
 │       └── text_utils.py         # Text truncation & memory utilities
 │
+├── ct/                           # Downstream 3D CT vision-language model
+│   ├── models/
+│   │   ├── inflate.py            # 2D -> 3D kernel inflation (vendored, see NOTICE)
+│   │   ├── i3res.py              # Inflated 3D ResNet vision encoder
+│   │   └── clip3d.py             # Contrastive vision-language model
+│   ├── data.py                   # Metadata CSVs -> MONAI datasets
+│   ├── sections.py               # Organ-system report sectioning
+│   ├── prompts.py                # Prompt bank for the 30 abdominal findings
+│   ├── train.py                  # Training entry point
+│   ├── evaluate.py               # Zero-shot evaluation entry point
+│   └── zero_shot.py              # 30-finding zero-shot protocol
+│
 ├── cxr/                          # Downstream CXR vision-language model
 │   ├── models/
 │   │   ├── visual.py             # SigLIP vision tower (vendored, see NOTICE)
@@ -354,6 +397,7 @@ rg-curation-3d-medical-vlm/
 │   └── slurm/                    # SLURM submission scripts
 │
 ├── docs/
+│   ├── CT.md                     # 3D CT walkthrough
 │   └── CXR.md                    # Chest X-ray walkthrough
 │
 ├── examples/
