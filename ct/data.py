@@ -12,12 +12,22 @@ so a CSV written on another machine keeps working — and the Mixed pool
 
 import glob
 import os
+import shutil
+import tempfile
+from copy import deepcopy
+from pathlib import Path
 from typing import List, Optional, Sequence
 
+import monai
 import pandas as pd
+import torch
+from monai.data import DataLoader
+from monai.data.utils import SUPPORTED_PICKLE_MOD
+from monai.utils import look_up_option
 from tqdm import tqdm
 
 from ct.sections import build_findings_list
+from rg_curation.utils.monai_transforms import transforms_image
 
 SPLIT_INDICES = {"train": (0, 1, 2), "val": (3,), "test": (4,)}
 
@@ -119,3 +129,75 @@ def build_datalist(data_frame: pd.DataFrame, include_sections: bool = False) -> 
         datalist.append(item)
     print(f"Number of samples in datalist: {len(datalist)}")
     return datalist
+
+
+class CTPersistentDataset(monai.data.PersistentDataset):
+    """PersistentDataset that caches the transformed volume per image path.
+
+    The cache key is derived from the image path alone (not the transform
+    hash), so a cache directory is shared across runs that use the same
+    preprocessing — which all experiments in the paper do.
+    """
+
+    def __init__(self, data, transform, cache_dir=None):
+        super().__init__(data=data, transform=transform, cache_dir=cache_dir)
+        print(f"Size of dataset: {len(self)}\n")
+
+    def _cachecheck(self, item_transformed):
+        item = deepcopy(item_transformed)
+        image_data = {"image": item_transformed.get("image")}
+
+        hashfile = None
+        if self.cache_dir is not None:
+            key = self.hash_func(image_data).decode("utf-8")
+            hashfile = self.cache_dir / f"{key}.pt"
+
+        if hashfile is not None and hashfile.is_file():
+            item["image"] = torch.load(hashfile)
+            return item
+
+        transformed_image = self._pre_transform(image_data)["image"]
+        item["image"] = transformed_image
+        if hashfile is None:
+            return item
+
+        try:
+            # Write to a temporary file and rename, so a killed process never
+            # leaves a partially written cache entry behind.
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                temp_hash_file = Path(tmpdirname) / hashfile.name
+                torch.save(
+                    obj=transformed_image,
+                    f=temp_hash_file,
+                    pickle_module=look_up_option(
+                        self.pickle_module, SUPPORTED_PICKLE_MOD
+                    ),
+                    pickle_protocol=self.pickle_protocol,
+                )
+                if temp_hash_file.is_file() and not hashfile.is_file():
+                    try:
+                        shutil.move(str(temp_hash_file), hashfile)
+                    except FileExistsError:
+                        pass
+        except PermissionError:
+            pass
+        return item
+
+    def _transform(self, index: int):
+        return self._post_transform(self._cachecheck(self.data[index]))
+
+
+def build_dataloader(
+    datalist: List[dict],
+    batch_size: int,
+    shuffle: bool = False,
+    cache_dir: Optional[str] = None,
+    num_workers: int = 0,
+) -> DataLoader:
+    """Build a dataloader over CT volumes with the fixed transform pipeline."""
+    dataset = CTPersistentDataset(
+        data=datalist, transform=transforms_image, cache_dir=cache_dir
+    )
+    return DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
+    )
