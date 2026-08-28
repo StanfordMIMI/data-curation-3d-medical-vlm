@@ -18,6 +18,40 @@ augmentation stack, the sinusoidal position-embedding helpers, and the
 licensing terms before redistributing this file.
 
 --------------------------------------------------------------------------
+ct/models/inflate.py, ct/models/i3res.py
+--------------------------------------------------------------------------
+Adapted from inflated_convnets_pytorch by Yana Hasson (MIT License):
+
+    https://github.com/hassony2/inflated_convnets_pytorch
+    src/inflate.py, src/i3res.py
+
+The files are trimmed derivatives keeping the kernel-inflation helpers and
+the I3ResNet variant used in this project (contrastive head + auxiliary
+classification head).
+
+MIT License
+
+Copyright (c) 2018 Yana
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------
 Pretrained models
 --------------------------------------------------------------------------
 The pipeline downloads and uses the following pretrained weights at runtime.
@@ -26,6 +60,7 @@ They are not redistributed here and remain subject to their own licenses:
   DreamSim               https://github.com/ssundaram21/dreamsim
   Clinical Longformer    https://huggingface.co/yikuan8/Clinical-Longformer
   SigLIP                 https://huggingface.co/google/siglip-large-patch16-384
+  ResNet-152 (ImageNet)  https://pytorch.org/vision/stable/models.html
 
 --------------------------------------------------------------------------
 Datasets
