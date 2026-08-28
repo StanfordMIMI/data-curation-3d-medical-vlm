@@ -189,6 +189,14 @@ included. Metrics are per-finding F1 and the macro average, with 95%
 confidence intervals from 1000-iteration bootstrap resampling (AUPRC and
 AUROC on the continuous pos-minus-neg score are reported alongside).
 
+## Released checkpoints
+
+Trained CT checkpoints accompanying the paper are available on the Hugging
+Face Hub
+([`faidrapts/rg-curation-3d-medical-vlm`](https://huggingface.co/faidrapts/rg-curation-3d-medical-vlm)).
+They load into `ct.models.clip3d.Clip3D` with `strict=True` and can be
+passed directly to `python -m ct.evaluate --checkpoint <path>`.
+
 ## Notes
 
 - **Checkpoint compatibility.** `ct.models.clip3d.Clip3D` uses the original
