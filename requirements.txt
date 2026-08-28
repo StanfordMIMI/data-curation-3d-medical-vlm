@@ -25,3 +25,6 @@ albumentations>=2.0
 opencv-python-headless>=4.8
 accelerate>=0.26
 safetensors>=0.4
+
+# Optional: experiment tracking for ct/train.py (--wandb-project)
+# wandb>=0.16
