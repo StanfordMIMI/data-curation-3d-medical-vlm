@@ -2,11 +2,9 @@
 
 Code for the paper *"Reference-Guided Data Curation for 3D Medical
 Vision-Language Pretraining"*. A large, uncurated pool of medical
-scan–report pairs is filtered by kNN-aligning it to a small, high-quality
-reference set; the curated subset then trains a vision-language model. The
-repository contains the modality-agnostic curation pipeline and the
-downstream training and zero-shot evaluation code for both settings in the
-paper: **3D abdominal CT** and **2D chest X-ray**.
+scan–report pairs is filtered through reference-guided data curation using a small, high-quality
+reference set; the curated subset then trains a vision-language model. The repository contains the modality-agnostic curation pipeline and the
+downstream training and zero-shot evaluation code for both settings in the paper: **3D abdominal CT** and **2D chest X-ray**.
 
 ## Installation
 
