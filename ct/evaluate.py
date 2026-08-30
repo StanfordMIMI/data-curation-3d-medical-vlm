@@ -2,7 +2,7 @@
 """Zero-shot evaluation of a trained CT CLIP checkpoint.
 
 Evaluates all 30 abdominal findings on the requested split of a metadata CSV
-— the Merlin test split for in-distribution results, or the Tri-Valley
+— the Merlin test split for in-distribution results, or the TV
 metadata for out-of-distribution results.
 
 Usage

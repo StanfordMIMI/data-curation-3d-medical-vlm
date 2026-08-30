@@ -12,7 +12,7 @@ accelerate launch --mixed_precision=fp16 -m ct.train \\
     --train-metadata /data/curated_rrf.csv \\
     --val-metadata   /data/pool_labels.csv \\
     --image-dir      /data/ct_scans_merlin/ \\
-    --image-dir      /data/ct_scans_trivalley/ \\
+    --image-dir      /data/ct_scans_tv/ \\
     --num-train-samples 4599 \\
     --save-dir       /runs/ct \\
     ... (see scripts/slurm/ct_train.sbatch for the full invocation)

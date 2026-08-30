@@ -7,7 +7,7 @@ CSV additionally carries the curation score (``rrf_score`` or
 
 Image paths are resolved by filename against one or more image directories,
 so a CSV written on another machine keeps working — and the Mixed pool
-(Merlin + Tri-Valley) is handled by simply passing both directories.
+(Merlin + TV) is handled by simply passing both directories.
 """
 
 import glob

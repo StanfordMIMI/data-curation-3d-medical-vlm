@@ -1,4 +1,4 @@
-# 3D CT Pipeline (Merlin / Tri-Valley)
+# 3D CT Pipeline (Merlin / TV)
 
 End-to-end walkthrough for the 3D abdominal CT experiments: curating a
 training subset from the CT pool, training the CLIP-style 3D model
@@ -13,12 +13,12 @@ metadata, the volume preprocessing, and the downstream model differ.
 
 | | |
 |---|---|
-| **Pool** (D₀) | *Merlin* regime: the Merlin Abdominal CT training split, 15k scan–report pairs. *Mixed* regime: Merlin training split + Tri-Valley, 35k pairs (the paper's usual setting) |
+| **Pool** (D₀) | *Merlin* regime: the Merlin Abdominal CT training split, 15k scan–report pairs. *Mixed* regime: Merlin training split + TV, 35k pairs (the paper's usual setting) |
 | **Reference** (D_ref) | Merlin validation split, 5k pairs |
 | **Budgets** | 10% (1,533), 30% (4,599), and 100% of the Merlin training split |
 | **Model** | I3ResNet-152 (inflated from ImageNet) + Clinical Longformer |
 | **ID test set** | Merlin test split, 5k scans |
-| **OOD test set** | Tri-Valley test split (a different institution) |
+| **OOD test set** | TV test split (a different institution) |
 
 ## Data format
 
@@ -46,12 +46,12 @@ split:
 import pandas as pd
 
 merlin = pd.read_csv("/data/merlin_labels.csv")
-trivalley = pd.read_csv("/data/trivalley_labels.csv")
+tv = pd.read_csv("/data/tv_labels.csv")
 
 # Mixed 35k pool (use merlin alone for the single-source regime)
 pool = pd.concat([
     merlin[merlin.split.isin([0, 1, 2])],
-    trivalley[trivalley.split.isin([0, 1, 2])],
+    tv[tv.split.isin([0, 1, 2])],
 ])
 pool.to_csv("/data/curation/pool.csv", index=False)
 
@@ -129,7 +129,7 @@ metadata instead.
 TRAIN_METADATA=/data/curation/rrf_v8_t7.csv \
 VAL_METADATA=/data/merlin_labels.csv \
 IMAGE_DIR=/data/ct_scans_merlin/ \
-IMAGE_DIR_2=/data/ct_scans_trivalley/ \
+IMAGE_DIR_2=/data/ct_scans_tv/ \
 NUM_TRAIN_SAMPLES=4599 \
 SAVE_DIR=/runs/ct-rrf-30pct \
 CACHE_DIR=/data/ct_preproc_cache/ \
@@ -169,8 +169,8 @@ OUTPUT=/runs/ct-rrf-30pct/zero_shot_merlin_test.json \
   sbatch scripts/slurm/ct_evaluate.sbatch
 ```
 
-Out of distribution (Tri-Valley test split): same command with the
-Tri-Valley metadata CSV and image directory.
+Out of distribution (TV test split): same command with the
+TV metadata CSV and image directory.
 
 ### Protocol
 
@@ -196,5 +196,5 @@ AUROC on the continuous pos-minus-neg score are reported alongside).
   runs load with `strict=True`.
 - **Mixed pool.** Pass every volume directory via repeated `--image-dir`
   flags (or `IMAGE_DIR`/`IMAGE_DIR_2` in the sbatch); rows are matched to
-  files by filename, so Merlin and Tri-Valley volumes can live in separate
+  files by filename, so Merlin and TV volumes can live in separate
   trees.

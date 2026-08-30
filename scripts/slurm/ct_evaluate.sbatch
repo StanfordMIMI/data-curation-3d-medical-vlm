@@ -8,7 +8,7 @@
 #
 # Zero-shot evaluation of a trained CT CLIP checkpoint over the 30 abdominal
 # findings — the Merlin test split for in-distribution results, or the
-# Tri-Valley metadata for out-of-distribution results.
+# TV metadata for out-of-distribution results.
 #
 # Every variable can be overridden from the environment, e.g.
 #   CHECKPOINT=/runs/ct-rrf-30pct/clip3d_..._best_epoch_99.pt \

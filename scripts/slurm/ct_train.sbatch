@@ -33,7 +33,7 @@ mkdir -p logs
 TRAIN_METADATA=${TRAIN_METADATA:?set TRAIN_METADATA to the curated training CSV}
 VAL_METADATA=${VAL_METADATA:?set VAL_METADATA to the metadata CSV holding the validation split}
 IMAGE_DIR=${IMAGE_DIR:?set IMAGE_DIR to the directory with .nii.gz volumes}
-# Second image directory for the Mixed (Merlin + Tri-Valley) pool; leave
+# Second image directory for the Mixed (Merlin + TV) pool; leave
 # empty for the single-source pool.
 IMAGE_DIR_2=${IMAGE_DIR_2:-}
 SAVE_DIR=${SAVE_DIR:?set SAVE_DIR to the checkpoint output directory}
