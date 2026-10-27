@@ -11,7 +11,7 @@ downstream training and zero-shot evaluation code for both settings in the paper
 ## Installation
 
 ```bash
-git clone https://github.com/faidrapts/data-curation-3d-medical-vlm.git
+git clone https://github.com/StanfordMIMI/data-curation-3d-medical-vlm.git
 cd data-curation-3d-medical-vlm
 pip install -r requirements.txt
 ```
