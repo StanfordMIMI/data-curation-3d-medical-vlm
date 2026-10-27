@@ -1,5 +1,7 @@
 # Reference-Guided Data Curation for 3D Medical Vision-Language Pretraining
 
+**Published in WACV 2027.**
+
 Code for the paper *"Reference-Guided Data Curation for 3D Medical
 Vision-Language Pretraining"*. A large, uncurated pool of medical
 scan–report pairs is filtered through reference-guided data curation using a small, high-quality
@@ -74,10 +76,10 @@ examples/          # Small example inputs (pool/reference CSVs, CXR images)
 ## Citation
 
 ```bibtex
-@inproceedings{patsatzi2026rgcurationvlm,
+@inproceedings{patsatzi2027rgcurationvlm,
   title     = {Reference-Guided Data Curation for 3D Medical Vision-Language Pretraining},
-  author    = {Patsatzi, Faidra Anastasia},
-  url       = {https://github.com/faidrapts/rg-curation-3d-medical-vlm},
-  year      = {2026},
+  author    = {Patsatzi, Faidra and Kumar, Ashwin and Wang, Chong and Langlotz, Curtis P. and Heckel, Reinhard and Chaudhari, Akshay},
+  booktitle = {Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)},
+  year      = {2027},
 }
 ```
